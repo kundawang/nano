@@ -158,8 +158,6 @@ func (h *LocalHandler) addRemoteService(member *clusterpb.MemberInfo) {
 
 func (h *LocalHandler) delMember(addr string) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
 	for name, members := range h.remoteServices {
 		for i, maddr := range members {
 			if addr == maddr.ServiceAddr {
@@ -176,6 +174,12 @@ func (h *LocalHandler) delMember(addr string) {
 			h.remoteServices[name] = members
 		}
 	}
+	h.mu.Unlock()
+
+	// Sessions may still hold explicit router bindings to the departed node
+	// (created by RemoteServiceRoute). Purge them so subsequent messages and
+	// route-bound area subscriptions stop targeting an unreachable address.
+	h.currentNode.purgeSessionRoutes(addr)
 }
 
 func (h *LocalHandler) LocalService() []string {
@@ -324,6 +328,20 @@ func (h *LocalHandler) findMembers(service string) []*clusterpb.MemberInfo {
 	return h.remoteServices[service]
 }
 
+// hasMember reports whether addr still provides at least one remote service.
+func (h *LocalHandler) hasMember(addr string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, members := range h.remoteServices {
+		for _, m := range members {
+			if m.ServiceAddr == addr {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (h *LocalHandler) remoteProcess(session *session.Session, msg *message.Message, noCopy bool) {
 	index := strings.LastIndex(msg.Route, ".")
 	if index < 0 {
@@ -362,6 +380,18 @@ func (h *LocalHandler) remoteProcess(session *session.Session, msg *message.Mess
 			remoteAddr = members[rand.Intn(len(members))].ServiceAddr
 			session.Router().Bind(service, remoteAddr)
 		}
+	}
+	// A binding may point at a member that has just left (delMember purges
+	// bindings after notifying, so a concurrent message can observe the old
+	// value). Never dispatch to an address that is no longer registered.
+	if !h.hasMember(remoteAddr) {
+		fresh := h.findMembers(service)
+		if len(fresh) == 0 {
+			log.Println(fmt.Sprintf("nano/handler: %s not found(forgot registered?)", msg.Route))
+			return
+		}
+		remoteAddr = fresh[rand.Intn(len(fresh))].ServiceAddr
+		session.Router().Bind(service, remoteAddr)
 	}
 	pool, err := h.currentNode.rpcClient.getConnPool(remoteAddr)
 	if err != nil {

@@ -68,6 +68,7 @@ func (manager *PlayerManager) Login(s *session.Session, msg *ReqPlayerLogin) err
     + [Route compression](./docs/route_compression.md)
     + [Communication protocol](./docs/communication_protocol.md)
     + [Design patterns](./docs/design_patterns.md)
+    + [Area subscriptions / viewports](./docs/area_subscription.md)
     + [API Reference(Server)](https://godoc.org/github.com/lonnng/nano)
     + [How to integrate `Lua` into `Nano` component(incomplete)](.)
 

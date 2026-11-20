@@ -331,6 +331,25 @@ func (n *Node) findOrCreateSession(sid int64, gateAddr string) (*session.Session
 	return s, nil
 }
 
+// purgeSessionRoutes removes every router binding pointing at addr from all
+// sessions tracked by this node. It is called when a cluster member leaves so
+// that stale bindings neither keep routing messages to a dead node nor keep
+// route-bound area subscriptions alive.
+func (n *Node) purgeSessionRoutes(addr string) {
+	if addr == "" {
+		return
+	}
+	n.mu.RLock()
+	sessions := make([]*session.Session, 0, len(n.sessions))
+	for _, s := range n.sessions {
+		sessions = append(sessions, s)
+	}
+	n.mu.RUnlock()
+	for _, s := range sessions {
+		s.Router().PurgeAddress(addr)
+	}
+}
+
 func (n *Node) HandleRequest(_ context.Context, req *clusterpb.RequestMessage) (*clusterpb.MemberHandleResponse, error) {
 	handler, found := n.handler.localHandlers[req.Route]
 	if !found {
